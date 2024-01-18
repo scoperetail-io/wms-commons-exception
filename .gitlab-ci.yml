@@ -1,0 +1,9 @@
+#File .gitlab-ci.yml from the development repository
+#Including the shared pipeline
+include:
+  project: 'it/path-to-production/shared-pipelines' #shared-pipeline repository location
+  ref: v-1.5.3 #Pipeline version to include
+  file: 'pipeline-templates/artifactory/java-lib-pipeline.gitlab-ci.yml' #Specific shared pipeline for the application type
+variables:
+  EMAIL_TO: "mohammed.yasir@autozone.com, vishwanath.mathapati@autozone.com, seema.preetham@autozone.com, vinay.munagala@autozone.com"
+
