@@ -10,5 +10,5 @@ package az.supplychain.wms.apierror;
 /**
  * The type Api sub error.
  */
-public abstract class ApiSubError {
+interface ApiSubError {
 }

@@ -32,7 +32,7 @@ public class EntityNotFoundException extends RuntimeException {
      * @param clazz           the entity class for which an instance was not found
      * @param searchParamsMap the search parameters used in the unsuccessful attempt
      */
-    public EntityNotFoundException(final Class clazz, final String... searchParamsMap) {
+    public <T> EntityNotFoundException(final Class<T> clazz, final String... searchParamsMap) {
         super(
                 EntityNotFoundException.generateMessage(
                         clazz.getSimpleName(), toMap(String.class, String.class, searchParamsMap)));
@@ -63,7 +63,8 @@ public class EntityNotFoundException extends RuntimeException {
      */
     private static <K, V> Map<K, V> toMap(
             final Class<K> keyType, final Class<V> valueType, final Object... entries) {
-        if (Objects.nonNull(entries) && entries.length % 2 == 1) {
+
+        if ( Objects.isNull(entries) ||  entries.length % 2 == 1) {
             throw new IllegalArgumentException("Invalid entries");
         }
         return IntStream.range(0, entries.length / 2)
