@@ -26,17 +26,17 @@ public class ApplicationException extends RuntimeException {
     /**
      * Error code associated with the exception.
      */
-    private String errorCode;
+    private final String errorCode;
 
     /**
      * Additional message providing context about the exception.
      */
-    private String message;
+    private final String message;
 
     /**
      * Severity level of the exception.
      */
-    private String severity;
+    private final String severity;
 
 
     /**
@@ -46,6 +46,9 @@ public class ApplicationException extends RuntimeException {
      */
     public ApplicationException(final String message) {
         super(message);
+        this.message = message;
+        severity = null;
+        errorCode = null;
     }
 
 
@@ -57,6 +60,9 @@ public class ApplicationException extends RuntimeException {
      */
     public ApplicationException(final String message, final Throwable t) {
         super(message, t);
+        this.message = message;
+        errorCode = null;
+        severity = null;
     }
 
 
@@ -70,6 +76,8 @@ public class ApplicationException extends RuntimeException {
     public ApplicationException(final String errorCode, final String message, final Throwable t) {
         super(message, t);
         this.errorCode = errorCode;
+        this.message = message;
+        severity = null;
     }
 
 
@@ -82,6 +90,8 @@ public class ApplicationException extends RuntimeException {
     public ApplicationException(final String errorCode, final String message) {
         super(message);
         this.errorCode = errorCode;
+        this.message = message;
+        severity = null;
     }
 
     /**

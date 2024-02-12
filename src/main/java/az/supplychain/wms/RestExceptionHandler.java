@@ -6,11 +6,10 @@
  */
 package az.supplychain.wms;
 
-import static org.springframework.http.HttpStatus.BAD_REQUEST;
-import static org.springframework.http.HttpStatus.NOT_FOUND;
-
 import az.supplychain.wms.apierror.ApiError;
 import az.supplychain.wms.exceptions.EntityNotFoundException;
+import jakarta.validation.ConstraintViolationException;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -30,8 +29,11 @@ import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.servlet.NoHandlerFoundException;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
-import jakarta.validation.ConstraintViolationException;
-import lombok.extern.slf4j.Slf4j;
+
+import java.util.Optional;
+
+import static org.springframework.http.HttpStatus.BAD_REQUEST;
+import static org.springframework.http.HttpStatus.NOT_FOUND;
 
 
 /**
@@ -245,11 +247,16 @@ public class RestExceptionHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler(MethodArgumentTypeMismatchException.class)
     protected ResponseEntity<Object> handleMethodArgumentTypeMismatch(
             final MethodArgumentTypeMismatchException ex, final WebRequest request) {
+        Optional<Class<?>> requiredType = Optional.ofNullable(ex.getRequiredType()) ;
+        String simpleName = "";
+         if(requiredType.isPresent()){
+             simpleName = requiredType.get().getSimpleName();
+         }
         final ApiError apiError = new ApiError(BAD_REQUEST);
         apiError.setMessage(
                 String.format(
                         "The parameter '%s' of value '%s' could not be converted to type '%s'",
-                        ex.getName(), ex.getValue(), ex.getRequiredType().getSimpleName()));
+                        ex.getName(), ex.getValue(), simpleName));
         apiError.setDebugMessage(ex.getMessage());
         return buildResponseEntity(apiError);
     }
