@@ -1,41 +1,110 @@
-# wms-commons-exception
+
+# WMS commons exception
+
+The commons-exception is a global exception handler for REST endpoints where:- 
+- Returns 400 status code for Invalid format and application exceptions. 
+- Returns 500 status code for server errors.
+- Returns 404 status code for resource not found exceptions. 
+
+For more details, kindly refer the design doc.
+
+[Low Level Design Documentation](https://autozone1com.sharepoint.com/:w:/r/sites/SupplyChainWMSRewrite-AZRIMS/Shared%20Documents/AZ%20RIMS%20-%20WMS%20ReBuild%20SR%20and%20AZ/Scope%20Retail%20Documents/Design/LLD/Common/LLD_Common_v0.2.docx?d=w88756a53e5c84212997e94674ee678c1&csf=1&web=1&e=E7Xv8t)
+## System Requirements
+
+### Local Development Environment
+
+- Maven version 3.5+.
+- Java Version 17 JDK.
+- Intellij Community Edition, Spring Tools IDE, Eclipse IDE or VSCode
+
+## Usage/Examples
 
 
-## Design Reference
-For design reference of this common component wms-commons-exception, please refer section 2.2.2 common-exception in [Common Component LLD](https://autozone1com.sharepoint.com/:w:/r/sites/SupplyChainWMSRewrite-AZRIMS/_layouts/15/Doc.aspx?sourcedoc=%7B88756A53-E5C8-4212-997E-94674EE678C1%7D&file=LLD_Common_v0.2.docx&action=default&mobileredirect=true&DefaultItemOpen=1&ct=1703573754796&wdOrigin=OFFICECOM-WEB.MAIN.REC&cid=0ca5279f-e3c2-42f9-9707-d773417c0b32&wdPreviousSessionSrc=HarmonyWeb&wdPreviousSession=0a958058-3e51-426e-bb5d-d83a16fb9dc2)
+### Importing the commons-exception
 
+- Ensure you have the below repositories setup for the WMS service you are about to implement:-
 
+```bash
+wms-template-service
+    |_wms-template-command/query/message-handler
+            |_wms-template-service-layer
+                |_wms-template-io
+                |_wms-template-dao
+```
 
-## Add your files
+- To use the commons-exception, include the internal and external bom in either ```wms-template-command-handler``` or ```wms-template-query-handler``` like so
 
-- [ ] [Create](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#create-a-file) or [upload](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#upload-a-file) files
-- [ ] [Add files using the command line](https://docs.gitlab.com/ee/gitlab-basics/add-file.html#add-a-file-using-the-command-line) or push an existing Git repository with the following command:
+```xml
+
+<dependencyManagement>
+    <dependencies>
+        <dependency>
+            <groupId>az.supplychain.wms</groupId>
+            <artifactId>wms-bom-external</artifactId>
+            <version>${wms-bom-external.version}</version>
+            <type>pom</type>
+            <scope>import</scope>
+        </dependency>
+        <dependency>
+            <groupId>az.supplychain.wms</groupId>
+            <artifactId>wms-bom-internal</artifactId>
+            <version>${wms-bom-internal.version}</version>
+            <type>pom</type>
+            <scope>import</scope>
+        </dependency>
+    </dependencies>
+</dependencyManagement>
 
 ```
-cd existing_repo
-git remote add origin https://gitlab.autozone.com/supply-chain/distribution-centers/wms/shared-libraries/wms-commons-exception.git
-git branch -M main
-git push -uf origin main
+- Finally include the commons-exception under the dependencies section like so
+
+```xml    
+<dependencies>
+    <dependency>
+        <groupId>az.supplychain.wms</groupId>
+        <artifactId>wms-commons-exception</artifactId>
+    </dependency>
+</dependencies>
+```
+**Note:** Recommended for use in command and query handler jars for now!
+### Using the commons-exception
+
+- Import the exception config in your config class like so
+
+```java
+    import az.supplychain.wms.ExceptionConfig;
+
+    @Configuration
+    @ComponentScan
+    @Import({..., ExceptionConfig.class})
+    public class SomeHandlerConfig {
+
+    }
+```
+- Now you can raise the exceptions from your controllers for the error scenarios and the exception handler would handle sending the response and status code for the same.
+- Below table lists the class of exceptions you can raise:-
+
+|Exception class | Response status code|
+|:----|:----|
+|```ApplicationException``` | 400|
+|```Exception``` |500|
+|```InvalidFomatException```|400|
+|```NotFoundException```|404| 
+
+### Building the project
+- After all changes are done, build all the projects like so:
+
+```
+cd your/project/root/dir
+
+mvn clean install
 ```
 
-## Integrate with your tools
 
-- [ ] [Set up project integrations](https://gitlab.autozone.com/supply-chain/distribution-centers/wms/shared-libraries/wms-commons-exception/-/settings/integrations)
+## Roadmap
 
-## Collaborate with your team
+**Note:** Global exception handling for message handlers is not handled.
 
-- [ ] [Invite team members and collaborators](https://docs.gitlab.com/ee/user/project/members/)
-- [ ] [Create a new merge request](https://docs.gitlab.com/ee/user/project/merge_requests/creating_merge_requests.html)
-- [ ] [Automatically close issues from merge requests](https://docs.gitlab.com/ee/user/project/issues/managing_issues.html#closing-issues-automatically)
-- [ ] [Enable merge request approvals](https://docs.gitlab.com/ee/user/project/merge_requests/approvals/)
-- [ ] [Automatically merge when pipeline succeeds](https://docs.gitlab.com/ee/user/project/merge_requests/merge_when_pipeline_succeeds.html)
+[ ] Handle global exception handling for message handlers including retry able exception. [WMSREBLD-2129](https://track.autozone.com/browse/WMSREBLD-2129)
 
-## Test and Deploy
-
-Use the built-in continuous integration in GitLab.
-
-- [ ] [Get started with GitLab CI/CD](https://docs.gitlab.com/ee/ci/quick_start/index.html)
-- [ ] [Analyze your code for known vulnerabilities with Static Application Security Testing(SAST)](https://docs.gitlab.com/ee/user/application_security/sast/)
-- [ ] [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/ee/topics/autodevops/requirements.html)
-- [ ] [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/ee/user/clusters/agent/)
-- [ ] [Set up protected environments](https://docs.gitlab.com/ee/ci/environments/protected_environments.html)
+[ ] Utilize the Response entites from commons-io instead of Spring's ```ResponseEntity```. [WMSREBLD-2130](https://track.autozone.com/browse/WMSREBLD-2130)
