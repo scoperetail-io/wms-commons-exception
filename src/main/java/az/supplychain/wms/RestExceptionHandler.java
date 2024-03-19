@@ -9,6 +9,7 @@ package az.supplychain.wms;
 import az.supplychain.wms.apierror.ApiError;
 import az.supplychain.wms.exceptions.EntityNotFoundException;
 import jakarta.validation.ConstraintViolationException;
+import jakarta.validation.ValidationException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
@@ -119,6 +120,20 @@ public class RestExceptionHandler extends ResponseEntityExceptionHandler {
     }
 
     /**
+     * Handles jakarta.validation.ValidationException. Thrown when @Validated fails.
+     *
+     * @param ex the ValidationException
+     * @return the ApiError object
+     */
+    @ExceptionHandler(ValidationException.class)
+    protected ResponseEntity<Object> handleValidationException(
+            final ValidationException ex) {
+        final ApiError apiError = new ApiError(BAD_REQUEST);
+        apiError.setMessage(ex.getMessage());
+        return buildResponseEntity(apiError);
+    }
+
+    /**
      * Handles javax.validation.ConstraintViolationException. Thrown when @Validated fails.
      *
      * @param ex the ConstraintViolationException
@@ -128,7 +143,7 @@ public class RestExceptionHandler extends ResponseEntityExceptionHandler {
     protected ResponseEntity<Object> handleConstraintViolation(
             final ConstraintViolationException ex) {
         final ApiError apiError = new ApiError(BAD_REQUEST);
-        apiError.setMessage("Validation error");
+        apiError.setMessage(ex.getMessage());
         apiError.addValidationErrors(ex.getConstraintViolations());
         return buildResponseEntity(apiError);
     }
