@@ -6,11 +6,15 @@
  */
 package az.supplychain.wms;
 
-import az.supplychain.wms.apierror.ApiError;
-import az.supplychain.wms.exceptions.EntityNotFoundException;
-import jakarta.validation.ConstraintViolationException;
-import jakarta.validation.ValidationException;
-import lombok.extern.slf4j.Slf4j;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -20,6 +24,10 @@ import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.http.converter.HttpMessageNotWritableException;
+import org.springframework.util.ObjectUtils;
+import org.springframework.validation.BindingResult;
+import org.springframework.validation.FieldError;
+import org.springframework.validation.ObjectError;
 import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
@@ -31,10 +39,14 @@ import org.springframework.web.method.annotation.MethodArgumentTypeMismatchExcep
 import org.springframework.web.servlet.NoHandlerFoundException;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
-import java.util.Optional;
-
-import static org.springframework.http.HttpStatus.BAD_REQUEST;
-import static org.springframework.http.HttpStatus.NOT_FOUND;
+import az.it.boot.web.api.WebApiError;
+import az.it.boot.web.api.WebApiErrorResponse;
+import az.supplychain.wms.exceptions.EntityNotFoundException;
+import io.micrometer.common.util.StringUtils;
+import jakarta.validation.ConstraintViolation;
+import jakarta.validation.ConstraintViolationException;
+import jakarta.validation.ValidationException;
+import lombok.extern.slf4j.Slf4j;
 
 
 /**
@@ -52,6 +64,10 @@ import static org.springframework.http.HttpStatus.NOT_FOUND;
 @Slf4j
 public class RestExceptionHandler extends ResponseEntityExceptionHandler {
 
+    DateTimeFormatter dateFormatter = DateTimeFormatter.ofPattern("dd-MM-yyyy hh:mm:ss");
+    public static final String TIMESTAMP_KEY = "timestamp";
+    public static final String CORRELATION_ID_KEY = "correlationId";
+    public static final String CORRELATION_ID_HEADER = "Correlation-Id";
 
     /**
      * Handle MissingServletRequestParameterException. Triggered when a 'required' request parameter
@@ -61,7 +77,7 @@ public class RestExceptionHandler extends ResponseEntityExceptionHandler {
      * @param headers HttpHeaders
      * @param status  HttpStatus
      * @param request WebRequest
-     * @return the ApiError object
+     * @return the WebApiError object
      */
     @Override
     protected ResponseEntity<Object> handleMissingServletRequestParameter(
@@ -70,7 +86,9 @@ public class RestExceptionHandler extends ResponseEntityExceptionHandler {
             final HttpStatusCode status,
             final WebRequest request) {
         final String error = ex.getParameterName() + " parameter is missing";
-        return buildResponseEntity(new ApiError(BAD_REQUEST, error, ex));
+        HttpStatus httpStatusCode = HttpStatus.BAD_REQUEST;
+        WebApiError webApiError = buildWebApiError(error, httpStatusCode);
+        return buildResponseEntity(webApiError, httpStatusCode);
     }
 
     /**
@@ -88,13 +106,14 @@ public class RestExceptionHandler extends ResponseEntityExceptionHandler {
             final HttpHeaders headers,
             final HttpStatusCode status,
             final WebRequest request) {
-        final StringBuilder builder = new StringBuilder();
-        builder.append(ex.getContentType());
-        builder.append(" media type is not supported. Supported media types are ");
-        ex.getSupportedMediaTypes().forEach(t -> builder.append(t).append(", "));
-        return buildResponseEntity(
-                new ApiError(
-                        HttpStatus.UNSUPPORTED_MEDIA_TYPE, builder.substring(0, builder.length() - 2), ex));
+        final StringBuilder stringBuilder = new StringBuilder();
+        stringBuilder.append(ex.getContentType());
+        stringBuilder.append(" media type is not supported. Supported media types are ");
+        ex.getSupportedMediaTypes().forEach(t -> stringBuilder.append(t).append(", "));
+        HttpStatus httpStatusCode = HttpStatus.UNSUPPORTED_MEDIA_TYPE;
+        String errorMessage = stringBuilder.substring(0, stringBuilder.length() - 2);
+        WebApiError webApiError = buildWebApiError(errorMessage, httpStatusCode);
+        return buildResponseEntity(webApiError, httpStatusCode);
     }
 
     /**
@@ -112,11 +131,13 @@ public class RestExceptionHandler extends ResponseEntityExceptionHandler {
             final HttpHeaders headers,
             final HttpStatusCode status,
             final WebRequest request) {
-        final ApiError apiError = new ApiError(BAD_REQUEST);
-        apiError.setMessage("Validation error");
-        apiError.addValidationErrors(ex.getBindingResult().getFieldErrors());
-        apiError.addValidationError(ex.getBindingResult().getGlobalErrors());
-        return buildResponseEntity(apiError);
+        HttpStatus httpStatusCode = HttpStatus.BAD_REQUEST;
+        final StringBuilder stringBuilder = new StringBuilder();
+        stringBuilder.append("Validation error: ");
+        stringBuilder.append(getValidationErrorMessageFromFieldErrors(ex));
+        List<WebApiError> webApiErrors = getApiErrorsFromGlobalErrors(ex.getBindingResult().getGlobalErrors());
+        WebApiError webApiError = buildWebApiError(stringBuilder.toString(), httpStatusCode, null, webApiErrors);
+        return buildResponseEntity(webApiError, httpStatusCode);
     }
 
     /**
@@ -127,10 +148,12 @@ public class RestExceptionHandler extends ResponseEntityExceptionHandler {
      */
     @ExceptionHandler(ValidationException.class)
     protected ResponseEntity<Object> handleValidationException(
-            final ValidationException ex) {
-        final ApiError apiError = new ApiError(BAD_REQUEST);
-        apiError.setMessage(ex.getMessage());
-        return buildResponseEntity(apiError);
+            final ValidationException ex, WebRequest webRequest) {
+        String correlationId = webRequest.getHeader(CORRELATION_ID_HEADER);
+        HttpStatus httpStatusCode = HttpStatus.BAD_REQUEST;
+        final String error = ex.getMessage();
+        WebApiError webApiError = buildWebApiError(error, httpStatusCode, correlationId);
+        return buildResponseEntity(webApiError, httpStatusCode);
     }
 
     /**
@@ -142,10 +165,10 @@ public class RestExceptionHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler(ConstraintViolationException.class)
     protected ResponseEntity<Object> handleConstraintViolation(
             final ConstraintViolationException ex) {
-        final ApiError apiError = new ApiError(BAD_REQUEST);
-        apiError.setMessage(ex.getMessage());
-        apiError.addValidationErrors(ex.getConstraintViolations());
-        return buildResponseEntity(apiError);
+        HttpStatus httpStatusCode = HttpStatus.BAD_REQUEST;
+        final String error = ex.getMessage();
+        WebApiError webApiError = buildWebApiError(error, httpStatusCode, null, getApiErrorsFromValidationErrors(ex.getConstraintViolations()));
+        return buildResponseEntity(webApiError, httpStatusCode);
     }
 
     /**
@@ -157,9 +180,10 @@ public class RestExceptionHandler extends ResponseEntityExceptionHandler {
      */
     @ExceptionHandler(EntityNotFoundException.class)
     protected ResponseEntity<Object> handleEntityNotFound(final EntityNotFoundException ex) {
-        final ApiError apiError = new ApiError(NOT_FOUND);
-        apiError.setMessage(ex.getMessage());
-        return buildResponseEntity(apiError);
+        HttpStatus httpStatusCode = HttpStatus.NOT_FOUND;
+        final String error = ex.getMessage();
+        WebApiError webApiError = buildWebApiError(error, httpStatusCode);
+        return buildResponseEntity(webApiError, httpStatusCode);
     }
 
     /**
@@ -168,7 +192,10 @@ public class RestExceptionHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler(jakarta.persistence.EntityNotFoundException.class)
     protected ResponseEntity<Object> handleEntityNotFound(
             final jakarta.persistence.EntityNotFoundException ex) {
-        return buildResponseEntity(new ApiError(HttpStatus.NOT_FOUND, ex));
+        HttpStatus httpStatusCode = HttpStatus.NOT_FOUND;
+        final String error = ex.getMessage();
+        WebApiError webApiError = buildWebApiError(error, httpStatusCode);
+        return buildResponseEntity(webApiError, httpStatusCode);
     }
 
     /**
@@ -191,8 +218,10 @@ public class RestExceptionHandler extends ResponseEntityExceptionHandler {
                 "{} to {}",
                 servletWebRequest.getHttpMethod(),
                 servletWebRequest.getRequest().getServletPath());
-        final String error = "Malformed JSON request";
-        return buildResponseEntity(new ApiError(HttpStatus.BAD_REQUEST, error, ex));
+        HttpStatus httpStatusCode = HttpStatus.BAD_REQUEST;
+        final String error = "Malformed JSON request: " + ex.getMessage();
+        WebApiError webApiError = buildWebApiError(error, httpStatusCode);
+        return buildResponseEntity(webApiError, httpStatusCode);
     }
 
     /**
@@ -210,8 +239,10 @@ public class RestExceptionHandler extends ResponseEntityExceptionHandler {
             final HttpHeaders headers,
             final HttpStatusCode status,
             final WebRequest request) {
-        final String error = "Error writing JSON output";
-        return buildResponseEntity(new ApiError(HttpStatus.INTERNAL_SERVER_ERROR, error, ex));
+        HttpStatus httpStatusCode = HttpStatus.INTERNAL_SERVER_ERROR;
+        final String error = "Error writing JSON output: " + ex.getMessage();
+        WebApiError webApiError = buildWebApiError(error, httpStatusCode);
+        return buildResponseEntity(webApiError, httpStatusCode);
     }
 
     /**
@@ -229,12 +260,11 @@ public class RestExceptionHandler extends ResponseEntityExceptionHandler {
             final HttpHeaders headers,
             final HttpStatusCode status,
             final WebRequest request) {
-        final ApiError apiError = new ApiError(BAD_REQUEST);
-        apiError.setMessage(
-                String.format(
-                        "Could not find the %s method for URL %s", ex.getHttpMethod(), ex.getRequestURL()));
-        apiError.setDebugMessage(ex.getMessage());
-        return buildResponseEntity(apiError);
+        HttpStatus httpStatusCode = HttpStatus.BAD_REQUEST;
+        final String error = String.format(
+                "Could not find the %s method for URL %s: %s", ex.getHttpMethod(), ex.getRequestURL(), ex.getMessage());
+        WebApiError webApiError = buildWebApiError(error, httpStatusCode);
+        return buildResponseEntity(webApiError, httpStatusCode);
     }
 
     /**
@@ -246,11 +276,17 @@ public class RestExceptionHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler(DataIntegrityViolationException.class)
     protected ResponseEntity<Object> handleDataIntegrityViolation(
             final DataIntegrityViolationException ex, final WebRequest request) {
+        HttpStatus httpStatusCode = null;
+        String error = null;
         if (ex.getCause() instanceof ConstraintViolationException) {
-            return buildResponseEntity(
-                    new ApiError(HttpStatus.CONFLICT, "Database error", ex.getCause()));
+            httpStatusCode = HttpStatus.CONFLICT;
+            error = "Database error: " + ex.getMessage();
+        } else {
+            httpStatusCode = HttpStatus.INTERNAL_SERVER_ERROR;
+            error = "Server error: " + ex.getMessage();
         }
-        return buildResponseEntity(new ApiError(HttpStatus.INTERNAL_SERVER_ERROR, ex));
+        WebApiError webApiError = buildWebApiError(error, httpStatusCode);
+        return buildResponseEntity(webApiError, httpStatusCode);
     }
 
     /**
@@ -267,28 +303,189 @@ public class RestExceptionHandler extends ResponseEntityExceptionHandler {
          if(requiredType.isPresent()){
              simpleName = requiredType.get().getSimpleName();
          }
-        final ApiError apiError = new ApiError(BAD_REQUEST);
-        apiError.setMessage(
-                String.format(
-                        "The parameter '%s' of value '%s' could not be converted to type '%s'",
-                        ex.getName(), ex.getValue(), simpleName));
-        apiError.setDebugMessage(ex.getMessage());
-        return buildResponseEntity(apiError);
+         HttpStatus httpStatusCode = HttpStatus.BAD_REQUEST;
+         final String error = String.format(
+                 "The parameter '%s' of value '%s' could not be converted to type '%s': %s",
+                 ex.getName(), ex.getValue(), simpleName, ex.getMessage());
+         WebApiError webApiError = buildWebApiError(error, httpStatusCode);
+         return buildResponseEntity(webApiError, httpStatusCode);
     }
 
-
     /**
-     * Builds a {@code ResponseEntity} for the given {@code ApiError}.
+     * Builds a {@code ResponseEntity} for the given {@code WebApiError}.
      *
      * <p>This method is typically used in exception handling scenarios to construct a standardized
      * response entity containing error details.
-     * <p>The {@code ResponseEntity} contains the provided {@code ApiError} as the response body and
+     * <p>The {@code ResponseEntity} contains the provided {@code WebApiError} as the response body and
      * its corresponding HTTP status.
      *
-     * @param apiError the {@code ApiError} containing error details
-     * @return a {@code ResponseEntity} containing the provided {@code ApiError}
+     * @param webApiError the {@code WebApiError} containing error details
+     * @param HttpStatus the {@code WebApiError} containing error details
+     * @return a {@code ResponseEntity} containing the provided {@code WebApiError}
      */
-    private ResponseEntity<Object> buildResponseEntity(final ApiError apiError) {
-        return new ResponseEntity<>(apiError, apiError.getStatus());
+    private ResponseEntity<Object> buildResponseEntity(
+            final WebApiError webApiError,
+            final HttpStatus httpStatus) {
+        WebApiErrorResponse webApiErrorResponse = new WebApiErrorResponse(webApiError);
+        return new ResponseEntity<>(webApiErrorResponse, httpStatus);
     }
+
+    /**
+     * Bridge method that calls buildWebApiError with no details argument
+     *
+     * @param errorMessage
+     * @param httpStatusCode
+     * @return
+     */
+    private WebApiError buildWebApiError(final String errorMessage, final HttpStatusCode httpStatusCode) {
+        return buildWebApiError(errorMessage, httpStatusCode, null, null);
+    }
+
+    /**
+     * Bridge method that calls buildWebApiError with no details argument
+     *
+     * @param errorMessage
+     * @param httpStatusCode
+     * @return
+     */
+    private WebApiError buildWebApiError(final String errorMessage, final HttpStatusCode httpStatusCode, final String correlationId) {
+        return buildWebApiError(errorMessage, httpStatusCode, correlationId, null);
+    }
+
+    /**
+     * Builds a {@code WebApiError} for the given {@code String}, {@code HttpStatusCode} and {@code Throwable}
+     *
+     * <p>This method is used to build an error response with details that can be added in the error response entity
+     * to be returned to the client.
+     *
+     * @param errorMessage the {@code String} containing error message
+     * @param httpStatusCode the {@code HttpStatusCode} containing the response status code
+     * @param details the {@code List<WebApiError>} containing the details that caused the failure
+     * @return a {@code WebApiError} containing the provided error message and HTTP status code
+     */
+    private WebApiError buildWebApiError(
+        final String errorMessage,
+        final HttpStatusCode httpStatusCode,
+        final String correlationId,
+        final List<WebApiError> details) {
+        WebApiError.Builder builder =
+                WebApiError
+                .builder()
+                .code(String.valueOf(httpStatusCode.value()))
+                .message(errorMessage)
+                .properties(getGenericErrorProperties(correlationId));
+        if (!ObjectUtils.isEmpty(details)) {
+            builder.details(details);
+        }
+        return builder.build();
+    }
+
+    /**
+     * Method that obtains the error details from the Invalid Argument Exception in the form of
+     * collection of WebApiErrors
+     *
+     * @param globalErrors
+     * @return
+     */
+    private List<WebApiError> getApiErrorsFromGlobalErrors(final List<ObjectError> globalErrors) {
+        List<WebApiError> webApiErrors = new ArrayList<>();
+        WebApiError webApiError = null;
+        HttpStatusCode statusCode = HttpStatus.BAD_REQUEST;
+        final StringBuilder errorMessage = new StringBuilder();
+        for (ObjectError objectError : globalErrors) {
+            errorMessage.append("Error in object ");
+            errorMessage.append(objectError.getObjectName());
+            errorMessage.append(" with message: ");
+            errorMessage.append(objectError.getDefaultMessage());
+            errorMessage.append(".");
+            webApiError = buildWebApiError(errorMessage.toString(), statusCode);
+            webApiErrors.add(webApiError);
+        }
+        return webApiErrors;
+    }
+
+    /**
+     * Method that builds the error string message from the Invalid Argument exception that later gets added to the
+     * error response of the WebApiError object.
+     *
+     * @param ex
+     * @return
+     */
+    private String getValidationErrorMessageFromFieldErrors(final MethodArgumentNotValidException ex) {
+        BindingResult bindingResult = ex.getBindingResult();
+        final StringBuilder errorMessage = new StringBuilder();
+        for (FieldError fieldError : bindingResult.getFieldErrors()) {
+            errorMessage.append(getErrorMessageForInvalidField(
+                  fieldError.getObjectName(),
+                  fieldError.getField(),
+                  fieldError.getRejectedValue().toString(),
+                  fieldError.getDefaultMessage()));
+        }
+        return errorMessage.toString();
+    }
+
+    /**
+     * Method that obtains the error details from the Invalid Argument Exception in the form of
+     * collection of WebApiErrors
+     *
+     * @param constraintViolations
+     * @return
+     */
+    private List<WebApiError> getApiErrorsFromValidationErrors(final Set<ConstraintViolation<?>> constraintViolations) {
+        List<WebApiError> webApiErrors = new ArrayList<>();
+        WebApiError webApiError = null;
+        HttpStatusCode statusCode = HttpStatus.BAD_REQUEST;
+        String errorMessage = null;
+        for (ConstraintViolation<?> constraintViolation : constraintViolations) {
+            errorMessage = getErrorMessageForInvalidField(
+                    constraintViolation.getRootBeanClass().getSimpleName(),
+                    constraintViolation.getLeafBean().toString(),
+                    constraintViolation.getInvalidValue().toString(),
+                    constraintViolation.getMessage());
+            webApiError = buildWebApiError(errorMessage, statusCode);
+            webApiErrors.add(webApiError);
+        }
+        return webApiErrors;
+    }
+
+    /**
+     * This method generates the error message verbiage for an invalid field error due to a constraint validation
+     * error or any other error while mapping fields in the request.
+     *
+     * @param objectName
+     * @param rejectedValue
+     * @param field
+     * @param defaultMessage
+     * @return
+     */
+    private String getErrorMessageForInvalidField(
+            final String objectName,
+            final String rejectedValue,
+            final String field,
+            final String defaultMessage) {
+        final StringBuilder errorMessage = new StringBuilder();
+        errorMessage.append("Invalid value ");
+        errorMessage.append(rejectedValue);
+        errorMessage.append(" on field ");
+        errorMessage.append(field);
+        errorMessage.append(" for object ");
+        errorMessage.append(objectName);
+        errorMessage.append(": ");
+        errorMessage.append(defaultMessage);
+        errorMessage.append(". ");
+        return errorMessage.toString();
+    }
+
+    /**
+     * Method that obtains generic properties for all the errors, such as timestamp and correlation id.
+     *
+     * @return
+     */
+    private Map<String, String> getGenericErrorProperties(final String correlationId) {
+        Map<String, String> genericProperties = new HashMap<>();
+        genericProperties.put(TIMESTAMP_KEY, LocalDateTime.now().format(dateFormatter));
+        genericProperties.put(CORRELATION_ID_KEY, correlationId);
+        return genericProperties;
+    }
+
 }

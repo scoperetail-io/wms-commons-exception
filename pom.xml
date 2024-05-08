@@ -8,9 +8,9 @@
         <version>0.0.1-SNAPSHOT</version>
         <relativePath/>
     </parent>
-    <groupId>az.supplychain.wms</groupId>
+
     <artifactId>wms-commons-exception</artifactId>
-    <version>0.0.1-SNAPSHOT</version>
+    <version>0.0.2-SNAPSHOT</version>
     <name>${project.artifactId}</name>
     <description>Utility library for exception handling</description>
 
@@ -18,6 +18,7 @@
         <java.version>17</java.version>
         <wms-bom-external.version>0.0.1-SNAPSHOT</wms-bom-external.version>
         <wms-bom-internal.version>0.0.1-SNAPSHOT</wms-bom-internal.version>
+        <az-boot-web-api.version>2.0.0-SNAPSHOT</az-boot-web-api.version>
     </properties>
 
     <dependencyManagement>
@@ -40,6 +41,11 @@
     </dependencyManagement>
 
     <dependencies>
+        <dependency>
+            <groupId>az.it.boot</groupId>
+            <artifactId>az-boot-web-api</artifactId>
+            <version>${az-boot-web-api.version}</version>
+        </dependency>
         <dependency>
             <groupId>az.supplychain.wms</groupId>
             <artifactId>wms-commons-io</artifactId>
