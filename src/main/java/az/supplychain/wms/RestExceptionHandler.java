@@ -6,7 +6,8 @@
  */
 package az.supplychain.wms;
 
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -42,7 +43,6 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
 import az.it.boot.web.api.WebApiError;
 import az.it.boot.web.api.WebApiErrorResponse;
 import az.supplychain.wms.exceptions.EntityNotFoundException;
-import io.micrometer.common.util.StringUtils;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.ConstraintViolationException;
 import jakarta.validation.ValidationException;
@@ -64,7 +64,7 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public class RestExceptionHandler extends ResponseEntityExceptionHandler {
 
-    DateTimeFormatter dateFormatter = DateTimeFormatter.ofPattern("dd-MM-yyyy hh:mm:ss");
+    DateTimeFormatter dateFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'");
     public static final String TIMESTAMP_KEY = "timestamp";
     public static final String CORRELATION_ID_KEY = "correlationId";
     public static final String CORRELATION_ID_HEADER = "Correlation-Id";
@@ -214,10 +214,6 @@ public class RestExceptionHandler extends ResponseEntityExceptionHandler {
             final HttpStatusCode status,
             final WebRequest request) {
         final ServletWebRequest servletWebRequest = (ServletWebRequest) request;
-        log.info(
-                "{} to {}",
-                servletWebRequest.getHttpMethod(),
-                servletWebRequest.getRequest().getServletPath());
         HttpStatus httpStatusCode = HttpStatus.BAD_REQUEST;
         final String error = "Malformed JSON request: " + ex.getMessage();
         WebApiError webApiError = buildWebApiError(error, httpStatusCode);
@@ -418,7 +414,7 @@ public class RestExceptionHandler extends ResponseEntityExceptionHandler {
             errorMessage.append(getErrorMessageForInvalidField(
                   fieldError.getObjectName(),
                   fieldError.getField(),
-                  fieldError.getRejectedValue().toString(),
+                  fieldError.getRejectedValue() != null ? fieldError.getRejectedValue().toString() : "null",
                   fieldError.getDefaultMessage()));
         }
         return errorMessage.toString();
@@ -460,8 +456,8 @@ public class RestExceptionHandler extends ResponseEntityExceptionHandler {
      */
     private String getErrorMessageForInvalidField(
             final String objectName,
-            final String rejectedValue,
             final String field,
+            final String rejectedValue,
             final String defaultMessage) {
         final StringBuilder errorMessage = new StringBuilder();
         errorMessage.append("Invalid value ");
@@ -483,7 +479,7 @@ public class RestExceptionHandler extends ResponseEntityExceptionHandler {
      */
     private Map<String, String> getGenericErrorProperties(final String correlationId) {
         Map<String, String> genericProperties = new HashMap<>();
-        genericProperties.put(TIMESTAMP_KEY, LocalDateTime.now().format(dateFormatter));
+        genericProperties.put(TIMESTAMP_KEY, OffsetDateTime.now(ZoneOffset.UTC).format(dateFormatter));
         genericProperties.put(CORRELATION_ID_KEY, correlationId);
         return genericProperties;
     }
