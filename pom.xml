@@ -10,7 +10,7 @@
     </parent>
 
     <artifactId>wms-commons-exception</artifactId>
-    <version>0.0.3-SNAPSHOT</version>
+    <version>0.0.4-SNAPSHOT</version>
     <name>${project.artifactId}</name>
     <description>Utility library for exception handling</description>
 

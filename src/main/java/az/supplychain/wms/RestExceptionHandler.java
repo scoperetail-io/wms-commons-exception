@@ -26,9 +26,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.http.converter.HttpMessageNotWritableException;
 import org.springframework.util.ObjectUtils;
-import org.springframework.validation.BindingResult;
 import org.springframework.validation.FieldError;
-import org.springframework.validation.ObjectError;
 import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
@@ -122,7 +120,7 @@ public class RestExceptionHandler extends ResponseEntityExceptionHandler {
      * @param ex      the MethodArgumentNotValidException that is thrown when @Valid validation fails
      * @param headers HttpHeaders
      * @param status  HttpStatus
-     * @param request WebRequest
+     * @param webRequest WebRequest
      * @return the ApiError object
      */
     @Override
@@ -130,13 +128,15 @@ public class RestExceptionHandler extends ResponseEntityExceptionHandler {
             final MethodArgumentNotValidException ex,
             final HttpHeaders headers,
             final HttpStatusCode status,
-            final WebRequest request) {
+            final WebRequest webRequest) {
+        String correlationId = webRequest.getHeader(CORRELATION_ID_HEADER);
         HttpStatus httpStatusCode = HttpStatus.BAD_REQUEST;
-        final StringBuilder stringBuilder = new StringBuilder();
-        stringBuilder.append("Validation error: ");
-        stringBuilder.append(getValidationErrorMessageFromFieldErrors(ex));
-        List<WebApiError> webApiErrors = getApiErrorsFromGlobalErrors(ex.getBindingResult().getGlobalErrors());
-        WebApiError webApiError = buildWebApiError(stringBuilder.toString(), httpStatusCode, null, webApiErrors);
+        final String errorMessage = "Validation error";
+        List<WebApiError> webApiErrors = null;
+        if (ex.getBindingResult() != null && ex.getBindingResult().getFieldErrors() != null) {
+            webApiErrors = getApiErrorsFromFieldErrors(ex.getBindingResult().getFieldErrors(), correlationId);
+        }
+        WebApiError webApiError = buildWebApiError(errorMessage, httpStatusCode, correlationId, webApiErrors);
         return buildResponseEntity(webApiError, httpStatusCode);
     }
 
@@ -148,7 +148,8 @@ public class RestExceptionHandler extends ResponseEntityExceptionHandler {
      */
     @ExceptionHandler(ValidationException.class)
     protected ResponseEntity<Object> handleValidationException(
-            final ValidationException ex, WebRequest webRequest) {
+            final ValidationException ex,
+            final WebRequest webRequest) {
         String correlationId = webRequest.getHeader(CORRELATION_ID_HEADER);
         HttpStatus httpStatusCode = HttpStatus.BAD_REQUEST;
         final String error = ex.getMessage();
@@ -164,10 +165,12 @@ public class RestExceptionHandler extends ResponseEntityExceptionHandler {
      */
     @ExceptionHandler(ConstraintViolationException.class)
     protected ResponseEntity<Object> handleConstraintViolation(
-            final ConstraintViolationException ex) {
+            final ConstraintViolationException ex,
+            final WebRequest webRequest) {
+        String correlationId = webRequest.getHeader(CORRELATION_ID_HEADER);
         HttpStatus httpStatusCode = HttpStatus.BAD_REQUEST;
         final String error = ex.getMessage();
-        WebApiError webApiError = buildWebApiError(error, httpStatusCode, null, getApiErrorsFromValidationErrors(ex.getConstraintViolations()));
+        WebApiError webApiError = buildWebApiError(error, httpStatusCode, correlationId, getApiErrorsFromConstraintViolations(ex.getConstraintViolations(), correlationId));
         return buildResponseEntity(webApiError, httpStatusCode);
     }
 
@@ -308,26 +311,97 @@ public class RestExceptionHandler extends ResponseEntityExceptionHandler {
     }
 
     /**
-     * Builds a {@code ResponseEntity} for the given {@code WebApiError}.
+     * Method that obtains the error details from the Field Errors in the form of
+     * collection of WebApiErrors, with the correlation id of the request.
      *
-     * <p>This method is typically used in exception handling scenarios to construct a standardized
-     * response entity containing error details.
-     * <p>The {@code ResponseEntity} contains the provided {@code WebApiError} as the response body and
-     * its corresponding HTTP status.
-     *
-     * @param webApiError the {@code WebApiError} containing error details
-     * @param HttpStatus the {@code WebApiError} containing error details
-     * @return a {@code ResponseEntity} containing the provided {@code WebApiError}
+     * @param fieldErrors
+     * @param correlationId
+     * @return
      */
-    private ResponseEntity<Object> buildResponseEntity(
-            final WebApiError webApiError,
-            final HttpStatus httpStatus) {
-        WebApiErrorResponse webApiErrorResponse = new WebApiErrorResponse(webApiError);
-        return new ResponseEntity<>(webApiErrorResponse, httpStatus);
+    private List<WebApiError> getApiErrorsFromFieldErrors(final List<FieldError> fieldErrors, final String correlationId) {
+        List<WebApiError> webApiErrors = new ArrayList<>();
+        WebApiError webApiError = null;
+        HttpStatusCode statusCode = HttpStatus.BAD_REQUEST;
+        String errorMessage = null;
+        for (FieldError fieldError : fieldErrors) {
+            errorMessage = getErrorMessageForInvalidField(
+                  fieldError.getObjectName(),
+                  fieldError.getField(),
+                  fieldError.getRejectedValue() != null ? fieldError.getRejectedValue().toString() : "null",
+                  fieldError.getDefaultMessage());
+            webApiError = buildWebApiError(errorMessage.toString(), statusCode, correlationId);
+            webApiErrors.add(webApiError);
+        }
+        return webApiErrors;
     }
 
     /**
-     * Bridge method that calls buildWebApiError with no details argument
+     * Method that obtains the error details from the Invalid Argument Exception in the form of
+     * collection of WebApiErrors, with the correlation id of the request.
+     *
+     * @param constraintViolations
+     * @param correlationId
+     * @return
+     */
+    private List<WebApiError> getApiErrorsFromConstraintViolations(final Set<ConstraintViolation<?>> constraintViolations, final String correlationId) {
+        List<WebApiError> webApiErrors = new ArrayList<>();
+        WebApiError webApiError = null;
+        HttpStatusCode statusCode = HttpStatus.BAD_REQUEST;
+        String errorMessage = null;
+        for (ConstraintViolation<?> constraintViolation : constraintViolations) {
+            errorMessage = getErrorMessageForInvalidField(
+                    constraintViolation.getRootBeanClass().getSimpleName(),
+                    constraintViolation.getLeafBean().toString(),
+                    constraintViolation.getInvalidValue().toString(),
+                    constraintViolation.getMessage());
+            webApiError = buildWebApiError(errorMessage, statusCode, correlationId);
+            webApiErrors.add(webApiError);
+        }
+        return webApiErrors;
+    }
+
+    /**
+     * This method generates the error message verbiage for an invalid field error due to a constraint validation
+     * error or any other error while mapping fields in the request.
+     *
+     * @param objectName
+     * @param rejectedValue
+     * @param field
+     * @param defaultMessage
+     * @return
+     */
+    private String getErrorMessageForInvalidField(
+            final String objectName,
+            final String field,
+            final String rejectedValue,
+            final String defaultMessage) {
+        final StringBuilder errorMessage = new StringBuilder();
+        errorMessage.append("Invalid value ");
+        errorMessage.append(rejectedValue);
+        errorMessage.append(" on field ");
+        errorMessage.append(field);
+        errorMessage.append(" for object ");
+        errorMessage.append(objectName);
+        errorMessage.append(": ");
+        errorMessage.append(defaultMessage);
+        errorMessage.append(".");
+        return errorMessage.toString();
+    }
+
+    /**
+     * Method that obtains generic properties for all the errors, such as timestamp and correlation id.
+     *
+     * @return
+     */
+    private Map<String, String> getGenericErrorProperties(final String correlationId) {
+        Map<String, String> genericProperties = new HashMap<>();
+        genericProperties.put(TIMESTAMP_KEY, OffsetDateTime.now(ZoneOffset.UTC).format(dateFormatter));
+        genericProperties.put(CORRELATION_ID_KEY, correlationId);
+        return genericProperties;
+    }
+
+    /**
+     * Bridge method that calls buildWebApiError with no correlation id or details argument
      *
      * @param errorMessage
      * @param httpStatusCode
@@ -377,111 +451,22 @@ public class RestExceptionHandler extends ResponseEntityExceptionHandler {
     }
 
     /**
-     * Method that obtains the error details from the Invalid Argument Exception in the form of
-     * collection of WebApiErrors
+     * Builds a {@code ResponseEntity} for the given {@code WebApiError}.
      *
-     * @param globalErrors
-     * @return
-     */
-    private List<WebApiError> getApiErrorsFromGlobalErrors(final List<ObjectError> globalErrors) {
-        List<WebApiError> webApiErrors = new ArrayList<>();
-        WebApiError webApiError = null;
-        HttpStatusCode statusCode = HttpStatus.BAD_REQUEST;
-        final StringBuilder errorMessage = new StringBuilder();
-        for (ObjectError objectError : globalErrors) {
-            errorMessage.append("Error in object ");
-            errorMessage.append(objectError.getObjectName());
-            errorMessage.append(" with message: ");
-            errorMessage.append(objectError.getDefaultMessage());
-            errorMessage.append(".");
-            webApiError = buildWebApiError(errorMessage.toString(), statusCode);
-            webApiErrors.add(webApiError);
-        }
-        return webApiErrors;
-    }
-
-    /**
-     * Method that builds the error string message from the Invalid Argument exception that later gets added to the
-     * error response of the WebApiError object.
+     * <p>This method is typically used in exception handling scenarios to construct a standardized
+     * response entity containing error details.
+     * <p>The {@code ResponseEntity} contains the provided {@code WebApiError} as the response body and
+     * its corresponding HTTP status.
      *
-     * @param ex
-     * @return
+     * @param webApiError the {@code WebApiError} containing error details
+     * @param HttpStatus the {@code WebApiError} containing error details
+     * @return a {@code ResponseEntity} containing the provided {@code WebApiError}
      */
-    private String getValidationErrorMessageFromFieldErrors(final MethodArgumentNotValidException ex) {
-        BindingResult bindingResult = ex.getBindingResult();
-        final StringBuilder errorMessage = new StringBuilder();
-        for (FieldError fieldError : bindingResult.getFieldErrors()) {
-            errorMessage.append(getErrorMessageForInvalidField(
-                  fieldError.getObjectName(),
-                  fieldError.getField(),
-                  fieldError.getRejectedValue() != null ? fieldError.getRejectedValue().toString() : "null",
-                  fieldError.getDefaultMessage()));
-        }
-        return errorMessage.toString();
-    }
-
-    /**
-     * Method that obtains the error details from the Invalid Argument Exception in the form of
-     * collection of WebApiErrors
-     *
-     * @param constraintViolations
-     * @return
-     */
-    private List<WebApiError> getApiErrorsFromValidationErrors(final Set<ConstraintViolation<?>> constraintViolations) {
-        List<WebApiError> webApiErrors = new ArrayList<>();
-        WebApiError webApiError = null;
-        HttpStatusCode statusCode = HttpStatus.BAD_REQUEST;
-        String errorMessage = null;
-        for (ConstraintViolation<?> constraintViolation : constraintViolations) {
-            errorMessage = getErrorMessageForInvalidField(
-                    constraintViolation.getRootBeanClass().getSimpleName(),
-                    constraintViolation.getLeafBean().toString(),
-                    constraintViolation.getInvalidValue().toString(),
-                    constraintViolation.getMessage());
-            webApiError = buildWebApiError(errorMessage, statusCode);
-            webApiErrors.add(webApiError);
-        }
-        return webApiErrors;
-    }
-
-    /**
-     * This method generates the error message verbiage for an invalid field error due to a constraint validation
-     * error or any other error while mapping fields in the request.
-     *
-     * @param objectName
-     * @param rejectedValue
-     * @param field
-     * @param defaultMessage
-     * @return
-     */
-    private String getErrorMessageForInvalidField(
-            final String objectName,
-            final String field,
-            final String rejectedValue,
-            final String defaultMessage) {
-        final StringBuilder errorMessage = new StringBuilder();
-        errorMessage.append("Invalid value ");
-        errorMessage.append(rejectedValue);
-        errorMessage.append(" on field ");
-        errorMessage.append(field);
-        errorMessage.append(" for object ");
-        errorMessage.append(objectName);
-        errorMessage.append(": ");
-        errorMessage.append(defaultMessage);
-        errorMessage.append(". ");
-        return errorMessage.toString();
-    }
-
-    /**
-     * Method that obtains generic properties for all the errors, such as timestamp and correlation id.
-     *
-     * @return
-     */
-    private Map<String, String> getGenericErrorProperties(final String correlationId) {
-        Map<String, String> genericProperties = new HashMap<>();
-        genericProperties.put(TIMESTAMP_KEY, OffsetDateTime.now(ZoneOffset.UTC).format(dateFormatter));
-        genericProperties.put(CORRELATION_ID_KEY, correlationId);
-        return genericProperties;
+    private ResponseEntity<Object> buildResponseEntity(
+            final WebApiError webApiError,
+            final HttpStatus httpStatus) {
+        WebApiErrorResponse webApiErrorResponse = new WebApiErrorResponse(webApiError);
+        return new ResponseEntity<>(webApiErrorResponse, httpStatus);
     }
 
 }
