@@ -18,7 +18,7 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class TestRequestDTO {
 
-  @NotNull @NotBlank private String field1;
+  @NotBlank private String field1;
 
   @NotNull @NotBlank private String field2;
 }
