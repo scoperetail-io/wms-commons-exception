@@ -15,7 +15,7 @@
 	<properties>
 		<java.version>17</java.version>
 		<wms-bom-external.version>0.0.10-SNAPSHOT</wms-bom-external.version>
-		<wms-bom-internal.version>0.0.115-SNAPSHOT</wms-bom-internal.version>
+		<wms-bom-internal.version>0.0.154-SNAPSHOT</wms-bom-internal.version>
 		<az-boot-web-api.version>2.0.0-SNAPSHOT</az-boot-web-api.version>
 	</properties>
 
