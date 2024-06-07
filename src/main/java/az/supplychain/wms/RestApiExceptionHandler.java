@@ -609,7 +609,9 @@ public class RestApiExceptionHandler extends ResponseEntityExceptionHandler
           getErrorMessageForInvalidField(
               constraintViolation.getRootBeanClass().getSimpleName(),
               constraintViolation.getLeafBean().toString(),
-              constraintViolation.getInvalidValue().toString(),
+              constraintViolation.getInvalidValue() != null
+                  ? constraintViolation.getInvalidValue().toString()
+                  : "null",
               constraintViolation.getMessage());
       webApiError = buildWebApiError(errorMessage, statusCode, correlationId, null);
       webApiErrors.add(webApiError);
