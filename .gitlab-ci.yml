@@ -1,0 +1,28 @@
+#File .gitlab-ci.yml from the development repository
+#Including the shared pipeline
+include:
+  project: 'it/path-to-production/shared-pipelines' #shared-pipeline repository location
+  ref: v-1 #Pipeline version to include
+  file: '/pipeline-templates/artifactory/java-lib-pipeline.gitlab-ci.yml' #Specific shared pipeline for the application type
+variables:
+  EMAIL_TO: "wms-commons-git-notifications@autozone.com"
+
+default:
+  image: docker.artifactory.autozone.com/release/az-build-images/maven-jdk-17:1.1.3
+increment-version-in-pom: #adding this job to increment the application's version in the pom file
+  stage: deploy
+  needs:
+    - mvn-upload-snapshot
+  rules:
+    - if: $CI_COMMIT_BRANCH == "develop"
+  script:
+    - apt -y update
+    - apt -y install git
+    - git config --global url."https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.autozone.com/".insteadOf "https://gitlab.autozone.com/"
+    - git config --global user.name "gitlab-runner"
+    - git config --global user.email "gitlab-runner@gitlab.autozone.com"
+    - git checkout "$CI_COMMIT_REF_NAME"
+    - mvn release:update-versions --batch-mode
+    - git add pom.xml
+    - git commit -m "[skip-ci] prepare for next development iteration"
+    - git push "https://gitlab-ci-token:$WMS_GITLAB_GROUP_CI_TOKEN@gitlab.autozone.com/$CI_PROJECT_PATH.git"
