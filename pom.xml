@@ -14,9 +14,8 @@
 
 	<properties>
 		<java.version>17</java.version>
-		<wms-bom-external.version>0.0.10-SNAPSHOT</wms-bom-external.version>
-		<wms-bom-internal.version>0.0.154-SNAPSHOT</wms-bom-internal.version>
-		<az-boot-web-api.version>2.0.0-SNAPSHOT</az-boot-web-api.version>
+		<wms-bom-external.version>1.0.1</wms-bom-external.version>
+		<wms-bom-internal.version>1.0.0</wms-bom-internal.version>
 	</properties>
 
 	<dependencyManagement>
@@ -42,11 +41,6 @@
 		<dependency>
 			<groupId>az.it.boot</groupId>
 			<artifactId>az-boot-web-api</artifactId>
-			<version>${az-boot-web-api.version}</version>
-		</dependency>
-		<dependency>
-			<groupId>az.supplychain.wms</groupId>
-			<artifactId>wms-commons-io</artifactId>
 		</dependency>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
@@ -82,8 +76,11 @@
 		<dependency>
 			<groupId>org.hibernate.validator</groupId>
 			<artifactId>hibernate-validator</artifactId>
-			<version>8.0.1.Final</version>
 			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.projectlombok</groupId>
+			<artifactId>lombok</artifactId>
 		</dependency>
 	</dependencies>
 </project>
